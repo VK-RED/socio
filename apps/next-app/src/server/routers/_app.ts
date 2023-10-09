@@ -1,26 +1,11 @@
-import { z } from 'zod';
-import { procedure, router } from '../trpc';
+import { router } from '../trpc';
+import { postRouter } from './post/route';
 
+//This is the Main Router combining all the Routers
 export const appRouter = router({
-  hello: procedure
-    .input(
-      z.object({
-        text: z.string(),
-      }),
-    )
-    .query((opts) => {
-
-      if(opts.ctx.session?.user)
-        return {greeting: `Hi ${opts.ctx.session.user}, you have been successfully Signed In`};
-
-      else{
-        return {
-          greeting: `Hi user, you have not been Signed In, kindly please SignIn`,
-        }
-      }
-      
-    }),
+  post: postRouter,
+  
 });
 
-// export type definition of API
+// export type definition of API to the Frontend
 export type AppRouter = typeof appRouter;
