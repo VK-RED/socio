@@ -1,46 +1,50 @@
 import { z } from 'zod';
 import {procedure, router } from "../../trpc"
+import { admin } from '@/server/middleware';
+import { TRPCError } from '@trpc/server';
 
-// This file contains the functions to CRUD a POST
+// This file contains the functions to CRUD a POST . 
+// All the routes are protected using admin MIDDLEWARE
+
 
 export const postRouter = router({
 
     //create a post
     create: procedure
-
+            .use(admin)
             .input(z.object({
                 image: z.string(),
                 content: z.string(),
             }))
-
             .mutation(async(opts)=>{
 
-
-                if(!opts.ctx.session?.user) return {message: "You are not authenticated to do this operation"};
-
                 const {image, content} = opts.input;
+                const email = opts.ctx.session?.user?.email;
 
-                if(opts.ctx.session.user.email){
-                    
-                    //check for the user in DB
-                    const user = await opts.ctx.prisma.user.findUnique({
+                //Find if the user Exists in DB Else throw ERROR
+                //Create a new Post and return the new Message
+
+                try {
+                    const user = await opts.ctx.prisma.user.findFirst({
                         where:{
-                            email: opts.ctx.session.user.email,
+                            email,
                         }
                     });
 
-                    if(!user) return {message: "Cannot find any User, Kindly Please Check your email"};
-
+                    if(!user) throw new TRPCError({code:"FORBIDDEN"});
 
                     const newPost = await opts.ctx.prisma.post.create({
                         data:{
                             image,
-                            content: content || "",
+                            content: content,
                             authorId: user.id,
                         }
                     })
-                    
-                    return {message:"Post Created Successfully"};
+
+                    return {message:"Post created Successfully"};
+
+                } catch (error) {
+                    throw new TRPCError({code:"INTERNAL_SERVER_ERROR"})
                 }
 
             }),
@@ -48,109 +52,111 @@ export const postRouter = router({
     //edit a Post
     update: procedure
 
+            .use(admin)
             .input(z.object({
                 content: z.string(),
                 image: z.string(),
                 postId: z.string(),
             }))
-
             .mutation(async (opts)=>{
 
-                //If there is no user resend back
-                if(!opts.ctx.session?.user) 
-                    return {message: "You are not authenticated to do this operation"};
-
                 const {image, content, postId} = opts.input;
+                const email = opts.ctx.session?.user?.email;
 
-                //TypeSafety Check
-                if(opts.ctx.session.user.email){
-            
-                    const user = await opts.ctx.prisma.user.findUnique({
-                        where:{
-                            email: opts.ctx.session.user.email,
-                        }
-                    });
+                //Update the Post one and only if userId === post.authorId
 
-                    if(!user) 
-                        return {message: "Cannot find any User, Kindly Please Check your email"};
+                try {
+                    const post = await opts.ctx.prisma.post.findUnique({where:{id:postId}});
+                    const user = await opts.ctx.prisma.user.findFirst({where:{
+                        email
+                    }});
 
-                    const oldPost = await opts.ctx.prisma.post.findUnique({where:{id: postId}});
+                    if(post?.authorId !== user?.id)
+                        throw new TRPCError({code:"FORBIDDEN"});
 
-                    //Check if the post exists or not
-                    if(!oldPost) 
-                        return {message:"Please Enter the correct Post ID"}
+                    else{
+                        const newPost = await opts.ctx.prisma.post.update({
+                            where:{
+                                id:postId,
+                            },
+                            data:{
+                                content,
+                                image,
+                            }
 
-                    //If the userId and Post's userId mismatches, return the error message
-                    if(user.id !== oldPost.authorId) 
-                        return {message:"You do not have permission to Update other person's post"}
+                        });
 
-                    const post = await opts.ctx.prisma.post.update({
-                        where:{
-                            id: opts.input.postId
-                        },
-                        data:{
-                            content,
-                            image,
-                        }
-                    })
-
-                    return {message:"Post Updated Successfully"};
-
+                        return {message:"The Post has been updated successfully"};
+                    }
+                } catch (error) {
+                    throw new TRPCError({code:"BAD_REQUEST", cause:"INVALID_POSTID"});
                 }
+
 
             }),
 
     //delete a post
     delete: procedure
+            .use(admin)
             .input(z.object({
                 postId: z.string(),
             }))
             .mutation(async(opts)=>{
 
-                //If there is no user resend back
-                if(!opts.ctx.session?.user?.email) 
-                    return {message: "You are not authenticated to do this operation"};
-
+                
                 const {postId} = opts.input;
+                const email = opts.ctx.session?.user?.email;
 
-                const oldPost = await opts.ctx.prisma.post.findUnique({where:{id:postId}});
+                //If the post exists and the client is the original author, delete the post
+                //Else throw appropriate errors to the client
 
-                //Check if the post exists or not
-                if(!oldPost) 
-                    return {message:"Please Enter the correct Post ID"}
-            
-                //check if this user have the authorisation
-                const user = await opts.ctx.prisma.user.findUnique({where:{
-                    email: opts.ctx.session.user.email
-                }})
+                try {
+                    const post = await opts.ctx.prisma.post.findUnique({where:{id:postId}});
+                    const user = await opts.ctx.prisma.user.findFirst({where:{
+                        email
+                    }});
 
-                if(user?.id !== oldPost.authorId) 
-                    return {message:"You do not have permission to Update other person's post"}
+                    //Delete only if the userId matches with post's authorId
+                    if(post?.authorId === user?.id){
+                        await opts.ctx.prisma.post.delete({where:{id:postId}});
+                        return {message:"The Post has been deleted successfully"};
+                    }
+                        
+                    else
+                        throw new TRPCError({code:"FORBIDDEN"});
 
-                //Delete the post from D.B
-                await opts.ctx.prisma.post.delete({where:{id:postId}});
+                } catch (error) {
+                    throw new TRPCError({code:"BAD_REQUEST", cause:"INVALID_POSTID"});
+                }
 
-                return {message:"The Post has been successfully deleted"};
             }),
 
     //get the details of the POST
     get:    procedure
+            .use(admin)
             .input(z.object({
                 postId: z.string(),
             }))
             .query(async (opts)=>{
                 const {postId} = opts.input;
+                const email = opts.ctx.session?.user?.email ;
 
-                //If there is no user resend back
-                if(!opts.ctx.session?.user?.email) 
-                    return {message: "You are not authenticated to do this operation"};
+                //Only if the post's author matches with the original author, return the post
+                //Else throw appropriate errors to the client
 
-                const post = await opts.ctx.prisma.post.findUnique({where:{id:postId}});
+                try {
+                    const post = await opts.ctx.prisma.post.findUnique({where:{id:postId}});
+                    const user = await opts.ctx.prisma.user.findFirst({where:{email}});
 
-                if(!post)
-                    return {message: "Please Enter the correct post Id"}
+                    if(post?.authorId === user?.id)
+                        return post;
+                    else
+                        throw new TRPCError ({code:"FORBIDDEN"});
 
-                else
-                    return {id:postId, content: post.content || "NO CONTENT", image: post.image};
-            })
+                } catch (error) {
+                    throw new TRPCError({code:"BAD_REQUEST", cause:"INVALID_POST_ID"});
+                }
+                
+            }),
+
 })
