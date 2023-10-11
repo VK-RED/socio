@@ -41,6 +41,7 @@ export const postRouter = router({
                         }
                     })
 
+
                     return {message:"Post created Successfully"};
 
                 } catch (error) {
@@ -115,9 +116,15 @@ export const postRouter = router({
                     const user = await opts.ctx.prisma.user.findFirst({where:{
                         email
                     }});
-
+                    
+                    //First Delete the Foreign Keys such as Comments[] and Likes[]
                     //Delete only if the userId matches with post's authorId
+                    //TODO: DELETE THE LIKES[] BEFORE DELETING A POST
+
+
                     if(post?.authorId === user?.id){
+                        
+                        await opts.ctx.prisma.comment.deleteMany({where:{postId:post?.id}});
                         await opts.ctx.prisma.post.delete({where:{id:postId}});
                         return {message:"The Post has been deleted successfully"};
                     }
@@ -126,12 +133,13 @@ export const postRouter = router({
                         throw new TRPCError({code:"FORBIDDEN"});
 
                 } catch (error) {
+                    console.log(error);
                     throw new TRPCError({code:"BAD_REQUEST", cause:"INVALID_POSTID"});
                 }
 
             }),
 
-    //get the details of the POST
+    //gets a single post of a USER
     get:    procedure
             .use(admin)
             .input(z.object({
@@ -145,7 +153,7 @@ export const postRouter = router({
                 //Else throw appropriate errors to the client
 
                 try {
-                    const post = await opts.ctx.prisma.post.findUnique({where:{id:postId}});
+                    const post = await opts.ctx.prisma.post.findUnique({where:{id:postId},include:{comments:true, likes:true}});
                     const user = await opts.ctx.prisma.user.findFirst({where:{email}});
 
                     if(post?.authorId === user?.id)
@@ -154,9 +162,12 @@ export const postRouter = router({
                         throw new TRPCError ({code:"FORBIDDEN"});
 
                 } catch (error) {
-                    throw new TRPCError({code:"BAD_REQUEST", cause:"INVALID_POST_ID"});
+                    throw new TRPCError({code:"BAD_REQUEST", cause:"INVALID_POST_ID", message:"NO_SUCH_POST_EXISTS"});
                 }
                 
             }),
+
+            //TODO: Get all POSTS of a USER and Get all the available posts in D.B
+
 
 })
