@@ -41,7 +41,6 @@ export const postRouter = router({
                         }
                     })
 
-
                     return {message:"Post created Successfully"};
 
                 } catch (error) {
@@ -72,7 +71,9 @@ export const postRouter = router({
                         email
                     }});
 
-                    if(post?.authorId !== user?.id)
+                    if(!post) return new TRPCError({code:"BAD_REQUEST", message:"ENTER_VALID_POST_ID"});
+
+                    if(post.authorId !== user?.id)
                         throw new TRPCError({code:"FORBIDDEN"});
 
                     else{
@@ -90,6 +91,7 @@ export const postRouter = router({
                         return {message:"The Post has been updated successfully"};
                     }
                 } catch (error) {
+                    console.log(error);
                     throw new TRPCError({code:"BAD_REQUEST", cause:"INVALID_POSTID"});
                 }
 
@@ -116,16 +118,18 @@ export const postRouter = router({
                     const user = await opts.ctx.prisma.user.findFirst({where:{
                         email
                     }});
+
+                    if(!post) return new TRPCError({code:"BAD_REQUEST", message:"ENTER_VALID_POST_ID"});
                     
                     //First Delete the Foreign Keys such as Comments[] and Likes[]
                     //Delete only if the userId matches with post's authorId
-                    //TODO: DELETE THE LIKES[] BEFORE DELETING A POST
-
 
                     if(post?.authorId === user?.id){
                         
-                        await opts.ctx.prisma.comment.deleteMany({where:{postId:post?.id}});
+                        await opts.ctx.prisma.comment.deleteMany({where:{postId}});
+                        await opts.ctx.prisma.like.deleteMany({where:{postId}})
                         await opts.ctx.prisma.post.delete({where:{id:postId}});
+                        
                         return {message:"The Post has been deleted successfully"};
                     }
                         
@@ -153,11 +157,12 @@ export const postRouter = router({
                 //Else throw appropriate errors to the client
 
                 try {
-                    const post = await opts.ctx.prisma.post.findUnique({where:{id:postId},include:{comments:true, likes:true}});
+                    const post = await opts.ctx.prisma.post.findFirst({where:{id:postId},include:{ likes:true,}});
+                    const comments = await opts.ctx.prisma.comment.findMany({where:{postId:post?.id}, include:{likes:true}});
                     const user = await opts.ctx.prisma.user.findFirst({where:{email}});
 
                     if(post?.authorId === user?.id)
-                        return post;
+                        return {post, comments};
                     else
                         throw new TRPCError ({code:"FORBIDDEN"});
 

@@ -111,11 +111,15 @@ export const commentRouter = router({
                         if(user?.id !== comment?.authorId)
                             throw new TRPCError({code:"FORBIDDEN"});
                         else{
+
+                            //Delete the likes associated with the comments first
+                            await opts.ctx.prisma.like.deleteMany({where:{commentId}});
                             await opts.ctx.prisma.comment.delete({where:{id:commentId}});
                             return {message:"The comment has been successfully deleted"}
                         }
                     } catch (error) {
-                        
+                        console.log(error);
+                        throw new TRPCError({code:"INTERNAL_SERVER_ERROR"})
                     }
                     
                 }),
@@ -147,7 +151,7 @@ export const commentRouter = router({
                     return comments;
 
                 } catch (error) {
-
+                    console.log(error);
                     throw new TRPCError({code:"BAD_REQUEST", message:"ENTER_A_VALID_POSTID"});
                 }
                 
